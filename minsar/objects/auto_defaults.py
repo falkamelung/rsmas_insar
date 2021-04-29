@@ -6,6 +6,10 @@ import datetime
 import glob
 
 
+queue_config_file = os.path.join(os.getenv('RSMASINSAR_HOME'), 'minsar/defaults/queues.cfg')
+supported_platforms = ['frontera', 'stampede2', 'comet', 'pegasus', 'eos_sanghoon', 'eos', 'eos\n',
+                       'beijing_server', 'deqing_server', 'dqcentos7insar']
+
 class PathFind:
     def __init__(self):
         self.logdir = os.getenv('OPERATIONS') + '/LOGS'
@@ -13,17 +17,17 @@ class PathFind:
         self.defaultdir = os.path.expandvars('${RSMASINSAR_HOME}/minsar/defaults')
         self.orbitdir = os.path.expandvars('$SENTINEL_ORBITS')
         self.auxdir = os.path.expandvars('$SENTINEL_AUX')
-        self.geomasterdir = 'merged/geom_master'
+        self.georeferencedir = 'merged/geom_reference'
         self.minopydir = 'minopy'
         self.mintpydir = 'mintpy'
         self.rundir = 'run_files'
         self.configdir = 'configs'
         self.mergedslcdir = 'merged/SLC'
         self.mergedintdir = 'merged/interferograms'
-        self.geomlatlondir = 'geom_master_noDEM'
+        self.geomlatlondir = 'geom_reference_noDEM'
         self.wrappercommandtops = 'SentinelWrapper.py -c '
         self.wrappercommandstripmap = 'stripmapWrapper.py -c '
-        self.masterdir = 'master'
+        self.referencedir = 'reference'
         self.stackdir = 'stack'
         self.tiffdir = 'image_products'
         self.daskconfig = os.path.expandvars('${RSMASINSAR_HOME}/minsar/defaults/dask/dask.yaml')
@@ -41,17 +45,21 @@ class PathFind:
     def set_isce_defaults(self, inps):
 
         inps_dict = vars(inps)
-
-        inps_dict['template'][inps.prefix + 'Stack.slcDir'] = inps.work_dir + '/SLC'
-        inps_dict['template'][inps.prefix + 'Stack.demDir'] = inps.work_dir + '/DEM'
-        inps_dict['template'][inps.prefix + 'Stack.workingDir'] = inps.work_dir
+        if inps_dict['template'][inps.prefix + 'Stack.slcDir'] == 'auto':
+            inps_dict['template'][inps.prefix + 'Stack.slcDir'] = inps.work_dir + '/SLC'
+        if inps_dict['template'][inps.prefix + 'Stack.demDir'] == 'auto':
+            inps_dict['template'][inps.prefix + 'Stack.demDir'] = inps.work_dir + '/DEM'
+        if inps_dict['template'][inps.prefix + 'Stack.workingDir'] == 'auto':
+            inps_dict['template'][inps.prefix + 'Stack.workingDir'] = inps.work_dir
 
         if 'cleanopt' not in inps.template:
             inps_dict['template']['cleanopt'] = '0'
 
         if inps.prefix == 'tops':
-            inps_dict['template']['topsStack.orbitDir'] = self.orbitdir
-            inps_dict['template']['topsStack.auxDir'] = self.auxdir
+            if inps_dict['template']['topsStack.orbitDir'] == 'auto':
+                inps_dict['template']['topsStack.orbitDir'] = self.orbitdir
+            if inps_dict['template']['topsStack.auxDir'] == 'auto':
+                inps_dict['template']['topsStack.auxDir'] = self.auxdir
 
         return
 
@@ -59,10 +67,7 @@ class PathFind:
     def grab_cropbox(inps):
 
         cropbox = inps.template[inps.prefix + 'Stack.boundingBox']
-        #if not inps.template['minopy.subset'] == 'None':
-        #        cropbox = inps.template['minopy.subset']
-        #else:
-        #    cropbox = inps.template['topsStack.boundingBox']
+
         return cropbox
 
     @staticmethod
@@ -84,8 +89,8 @@ class PathFind:
     def isce_clean_list():
         cleanlist = []
         cleanlist.append(['stack',  'misreg', 'orbits', 'coarse_interferograms', 'ESD',
-                          'interferograms', 'slaves'])
-        cleanlist.append(['merged', 'master', 'coreg_slaves', 'baselines', 'geom_master'])
+                          'interferograms', 'secondarys'])
+        cleanlist.append(['merged', 'reference', 'coreg_secondarys', 'baselines', 'geom_reference'])
         cleanlist.append(['SLC'])
         cleanlist.append(['MINTPY', 'run_files', 'configs', 'DEM'])
 
@@ -101,7 +106,7 @@ class PathFind:
         return fileList
 
     @staticmethod
-    def get_geom_master_lists():
+    def get_geom_reference_lists():
         list_geo = ['lat', 'lon', 'los', 'hgt', 'shadowMask', 'incLocal']
         return list_geo
 
@@ -116,32 +121,34 @@ class PathFind:
         if 'stripmap' in inps.template['acquisition_mode']:
             stackprefix = 'stripmapStack'
 
-            isceKey = ['slc_directory', 'working_directory', 'dem', 'bbox', 'master_date', 'time_threshold',
+            isceKey = ['slc_directory', 'working_directory', 'dem', 'bbox', 'reference_date', 'time_threshold',
                        'baseline_threshold', 'azimuth_looks', 'range_looks', 'sensor', 'low_band_frequency',
                        'high_band_frequency', 'subband_bandwidth', 'unw_method', 'filter_strength',
                        'filter_sigma_x', 'filter_sigma_y', 'filter_size_x', 'filter_size_y', 'filter_kernel_rotation',
-                       'workflow', 'applyWaterMask', 'zero', 'nofocus', 'text_cmd', 'useGPU']
+                       'workflow', 'zero', 'nofocus', 'text_cmd', 'useGPU']
+            #'applyWaterMask',
 
-            templateKey = ['slcDir', 'workingDir', 'demDir', 'boundingBox', 'master', 'timeThreshold',
+            templateKey = ['slcDir', 'workingDir', 'demDir', 'boundingBox', 'referenceDate', 'timeThreshold',
                            'baselineThreshold', 'azimuthLooks', 'rangeLooks', 'sensor',
                            'LowBandFrequency', 'HighBandFrequency', 'subbandBandwith', 'unwMethod',
                            'golsteinFilterStrength', 'filterSigmaX', 'filterSigmaY', 'filterSizeX', 'filterSizeY',
-                           'filterKernelRotation', 'workflow', 'watermask', 'zerodop', 'nofocus', 'textCmd', 'useGPU']
+                           'filterKernelRotation', 'workflow', 'zerodop', 'nofocus', 'textCmd', 'useGPU']
+            #'watermask',
 
         else:
             stackprefix = 'topsStack'
 
-            isceKey = ['slc_directory', 'orbit_directory', 'aux_directory', 'working_directory', 'dem', 'master_date',
+            isceKey = ['slc_directory', 'orbit_directory', 'aux_directory', 'working_directory', 'dem', 'reference_date',
                        'num_connections', 'num_overlap_connections', 'swath_num', 'bbox', 'text_cmd', 'exclude_dates',
                        'include_dates', 'azimuth_looks', 'range_looks', 'filter_strength', 'esd_coherence_threshold',
                        'snr_misreg_threshold', 'unw_method', 'polarization', 'coregistration', 'workflow', 'start_date',
-                       'stop_date', 'useGPU', 'rmFilter']
+                       'stop_date', 'useGPU', 'rmFilter', 'num_process', 'num_process4topo']
 
-            templateKey = ['slcDir', 'orbitDir', 'auxDir', 'workingDir', 'demDir', 'master', 'numConnections',
+            templateKey = ['slcDir', 'orbitDir', 'auxDir', 'workingDir', 'demDir', 'referenceDate', 'numConnections',
                            'numOverlapConnections', 'subswath', 'boundingBox', 'textCmd', 'excludeDates',
                            'includeDates', 'azimuthLooks', 'rangeLooks', 'filtStrength', 'esdCoherenceThreshold',
                            'snrMisregThreshold', 'unwMethod', 'polarization', 'coregistration', 'workflow', 'startDate',
-                           'stopDate', 'useGPU', 'rmFilter']
+                           'stopDate', 'useGPU', 'rmFilter', 'numProcess', 'numProcess4topo']
 
         templateKey = [stackprefix + '.' + x for x in templateKey]
 

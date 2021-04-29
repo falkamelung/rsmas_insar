@@ -16,6 +16,7 @@ import argparse
 import numpy as np
 import h5py
 import math
+import re
 from pathlib import Path
 from natsort import natsorted
 import xml.etree.ElementTree as ET
@@ -39,6 +40,8 @@ def cmd_line_parse(iargs=None, script=None):
 
     if script == 'download_rsmas':
         parser = add_download_data(parser)
+    if script == 'create_runfiles':
+        parser = add_create_runfiles(parser)
     if script == 'dem_rsmas':
         parser = add_download_dem(parser)
     if script == 'execute_runfiles':
@@ -49,7 +52,9 @@ def cmd_line_parse(iargs=None, script=None):
         parser = add_email_args(parser)
     if script == 'upload_data_products':
         parser = add_upload_data_products(parser)
-    if script == 'smallbaseline_wrapper' or script == 'ingest_insarmaps':
+    if script == 'generate_chunk_template_files':
+        parser = add_generate_chunk_template_files_args(parser)
+    if script == 'smallbaseline_wrapper' or script == 'ingest_insarmaps' or script == 'minopy_wrapper':
         parser = add_notification(parser)
 
     inps = parser.parse_args(args=iargs)
@@ -65,8 +70,19 @@ def add_common_parser(parser):
     commonp.add_argument('--submit', dest='submit_flag', action='store_true', help='submits job')
     commonp.add_argument('--walltime', dest='wall_time', metavar="WALLTIME (HH:MM)",
                          help='walltime for submitting the script as a job')
+    commonp.add_argument("--queue", dest="queue", metavar="QUEUE", help="Name of queue to submit job to")
+    commonp.add_argument('--reserveNode', dest='reserve_node', type=int, default=1, help='number of nodes to reserve')
     commonp.add_argument('--wait', dest='wait_time', default='00:00', metavar="Wait time (hh:mm)",
                          help="wait time to submit a job")
+    commonp.add_argument('--remora', dest='remora', action='store_true', help='use remora to get job information')
+
+    return parser
+
+
+def add_create_runfiles(parser):
+    run_parser = parser.add_argument_group('create run files and jobs options:')
+    run_parser.add_argument('--jobfiles', dest='write_jobs', action='store_true',
+                             help='writes the jobs corresponding to run files')
     return parser
 
 
@@ -93,6 +109,11 @@ def add_upload_data_products(parser):
                              action='store_true',
                              default=True,
                              help='uploads mintpy data products to data portal')
+    flag_parser.add_argument('--all',
+                             dest='mintpy_products_all_flag',
+                             action='store_true',
+                             default=False,
+                             help='uploads full mintpy dir')
     flag_parser.add_argument('--imageProducts',
                              dest='image_products_flag',
                              action='store_true',
@@ -156,8 +177,20 @@ def add_email_args(parser):
     em = parser.add_argument_group('Option for emailing insarmaps result.')
     em.add_argument('--mintpy', action='store_true', dest='email_mintpy_flag', default=False,
                     help='Email mintpy results')
+    em.add_argument('--minopy', action='store_true', dest='email_minopy_flag', default=False,
+                    help='Email minopy results')
     em.add_argument('--insarmaps', action='store_true', dest='email_insarmaps_flag', default=False,
                     help='Email insarmaps results')
+    return parser
+
+def add_generate_chunk_template_files_args(parser):
+    arg = parser.add_argument_group('Options for generating  template file chunks.')
+    arg.add_argument('--download', action='store_true', dest='download_flag', default=False,
+                    help='download data for each chunk')
+    arg.add_argument('--latStep', dest='lat_step', type=float,  default=1.0,
+                          help='chunk size in latitude [degrees] (default = 1.0).\n.')
+    arg.add_argument('--latMargin', dest='lat_margin', type=float,  default=0.1,
+                          help='margin to latStep [degrees] (default = 0.1).\n')
     return parser
 
 
@@ -215,6 +248,23 @@ def get_project_name(custom_template_file):
 ##########################################################################
 
 
+def split_project_name(project_name):
+    """ splits project name into location name, satellite and direction, and track number. """
+
+    location_name, sat_track = re.split('SenAT|SenDT',project_name)
+    
+    if 'SenAT' in project_name:
+       sat_direction = 'SenAT'
+    elif 'SenDT' in project_name:
+       sat_direction = 'SenDT'
+    else:
+       raise Exception('ERROR project name must contain SenDT or SenAT')
+
+    return location_name, sat_direction, sat_track 
+
+##########################################################################
+
+
 def get_work_directory(work_dir, project_name):
     """ Sets the working directory under project name. """
 
@@ -251,7 +301,6 @@ def create_or_update_template(inps_dict):
 
     if not os.path.exists(inps.work_dir):
         os.makedirs(inps.work_dir, exist_ok=True)
-
     # Creates default Template
     inps = create_default_template(inps)
 
@@ -356,8 +405,58 @@ def update_template_file(TEMP_FILE, custom_templateObj):
 
     return
 
+#########################################################################
 
-##########################################################################
+def write_template_file(TEMP_FILE, tempObj):
+    """
+    writes template file in project directory based on custom template file
+    :param TEMP_FILE: file to be writtem
+    :param tempObj:  template to be written
+    :return: written file text
+    """
+
+    print('Updating template file')
+    fileText = '#######################################\n'
+    for key, value in tempObj.options.items():
+         fileText = fileText + "{:<38}".format(key) + "{:<15}".format("= {}".format(value.strip("'"))) + '\n'
+
+    with open(TEMP_FILE, 'w') as file:
+        file.writelines(fileText)
+
+    return
+
+#########################################################################
+
+def beautify_template_file(TEMP_FILE):
+    """
+    adds lines with ##### to template file
+    """
+
+    f = open(TEMP_FILE, 'r')
+    lines = f.readlines()
+
+    delimiter_list = ['ssaraopt' , 'topsStack', 'mintpy']
+    delimiter_list = ['ssaraopt' , 'topsStack', 'stripmapStack', 'mintpy']
+
+    i = 0
+    i_last_insert = 0
+    for item in delimiter_list:
+   
+        i = i_last_insert
+
+        while (i  < len(lines)):
+            if item in lines[i]:
+                lines.insert(i,'#######################################\n')
+                i_last_insert = i
+                break
+            i = i + 1
+
+    f = open(TEMP_FILE, 'w')
+    f.writelines(lines)
+
+    return
+
+##########################################s################################
 
 
 def get_config_defaults(config_file='job_defaults.cfg'):
@@ -438,14 +537,15 @@ def rerun_job_if_exit_code_140(run_file, inps_dict):
     os.rename(stdout_dir, stdout_dir + '_pre_rerun')
 
     remove_last_job_running_products(run_file)
-    queuename = os.getenv('QUEUENAME')
+    #queuename = os.getenv('QUEUENAME')
 
     inps.wall_time = new_wall_time
     inps.work_dir = os.path.dirname(os.path.dirname(rerun_file))
     inps.out_dir = os.path.dirname(rerun_file)
-    inps.queue = queuename
+    #inps.queue = queuename
 
     job_obj = JOB_SUBMIT(inps)
+    job_obj.write_batch_jobs(batch_file=rerun_file)
     jobs = job_obj.submit_batch_jobs(batch_file=rerun_file)
 
     remove_zero_size_or_length_error_files(run_file=rerun_file)
@@ -542,6 +642,37 @@ def extract_step_name_from_stdout_name(job_name):
     return step_name
 
 ##########################################################################
+ 
+def extract_config_file_from_task_string(task):
+    """ Extracts the config filename from a task string """
+   
+    try:
+       config_file = task.split('configs/')[1].split('\n')[0]
+    except:
+       config_file =''
+
+    return config_file
+       
+##########################################################################
+ 
+def extract_date_string_from_config_file_name(config_file_name):
+    """ Extracts the date string from config_file_name (last string if it does not contain date) """
+   
+    date_or_string1 = config_file_name.split('_')[-1]
+    try:
+       date_or_string0 = config_file_name.split('_')[-2]
+    except:
+      date_or_string0 = ''
+
+    date_string = ''
+    if date_or_string0.isdigit():
+       date_string = date_or_string0 + '_'
+    
+    date_string = date_string + date_or_string1
+
+    return date_string
+
+##########################################################################
 
 def get_line_before_last(file):
     """get the line before last from a file"""
@@ -619,20 +750,24 @@ def concatenate_error_files(run_file, work_dir):
         os.remove(out_file)
 
     out_name = os.path.dirname(run_file) + '/out_' + run_file.split('/')[-1] + '.e'
-    Path(out_name).touch()
+    
     error_files = glob.glob(run_file + '*.e*')
+    error_files = natsorted(error_files)
+
     if not len(error_files) == 0:
-        with open(out_name, 'w') as outfile:
+        with open(out_name, 'w+') as outfile:
             for fname in error_files:
                 outfile.write('#########################\n')
                 outfile.write('#### ' + fname + ' \n')
                 outfile.write('#########################\n')
                 with open(fname) as infile:
                     outfile.write(infile.read())
-                os.remove(fname)
+                #os.remove(fname)
 
+    Path(out_name).touch()
     shutil.copy(os.path.abspath(out_name), os.path.abspath(work_dir))
-    os.remove(os.path.abspath(out_name))
+    #if os.path.exists(os.path.abspath(out_name)):
+    #    shutil.copy(os.path.abspath(out_name), os.path.abspath(work_dir))
 
     return None
 
@@ -648,7 +783,6 @@ def file_len(fname):
 
 ##########################################################################
 
-
 def remove_zero_size_or_length_error_files(run_file):
     """Removes files with zero size or zero length (*.e files in run_files)."""
 
@@ -659,6 +793,49 @@ def remove_zero_size_or_length_error_files(run_file):
             os.remove(item)
         elif file_len(item) == 0:
             os.remove(item)  # remove zero-line files
+    return None
+
+##########################################################################
+
+def remove_launcher_message_from_error_file(run_file):
+    """Removes launcher message from *.e files produced by launcher """
+
+    error_files = glob.glob(run_file + '*.e*')
+    error_files = natsorted(error_files)
+
+    for item in error_files:
+        new_lines=[]
+        f = open(item, 'r')
+        lines = f.readlines()
+        for line in lines:
+            if not any(skip in line for skip in ['using /tmp/launcher', 'starting job on ']):
+                new_lines.append(line)
+        f.close()
+        f = open(item, 'w')
+        f.write(''.join(new_lines))
+        f.close()
+        Path(item).touch()
+
+    return None
+
+##########################################################################
+
+
+def remove_line_counter_lines_from_error_files(run_file):
+    """Removes lines with e.g. 'line:   398' from *.e files (filter_coherence step)"""
+
+    error_files = glob.glob(run_file + '*.e*')
+    error_files = natsorted(error_files)
+    for item in error_files:
+        f = open(item, 'r')
+        lines = f.read()
+        if "\nline:" in lines:
+           tmp_line = lines.replace(" ","")
+           new_lines = re.sub(r"\nline:\d+","", tmp_line)
+           f.close()
+           f = open(item, 'w')
+           f.write(new_lines)
+
     return None
 
 
@@ -680,32 +857,33 @@ def remove_last_job_running_products(run_file):
 
 
 def move_out_job_files_to_stdout(run_file):
-    """move the error file into stdout_files directory"""
+    """move the stdout file into stdout_files directory"""
+    #job_files = glob.glob(run_file + '*.job')
+    stdout_files = glob.glob(run_file + '*.o')
 
-    job_files = glob.glob(run_file + '*.job')
-    stdout_files = glob.glob(run_file + '*.o*')
+    #if len(job_files) + len(stdout_files) == 0:
+    #    return
 
-    if len(job_files) + len(stdout_files) == 0:
+    if len(stdout_files) == 0:
         return
 
     dir_name = os.path.dirname(run_file)
     out_folder = dir_name + '/stdout_' + os.path.basename(run_file)
+    if not os.path.exists(out_folder):
+        os.makedirs(out_folder, exist_ok=True)
+    else:
+        shutil.rmtree(out_folder)
+        os.makedirs(out_folder, exist_ok=True)
 
-    if len(stdout_files) >= 2:
-        if not os.path.exists(out_folder):
-            os.makedirs(out_folder, exist_ok=True)
-        else:
-            shutil.rmtree(out_folder)
-            os.makedirs(out_folder, exist_ok=True)
-
+    if len(stdout_files) >= 1:           #changed 9/2020. was 2 but unclear why
         for item in stdout_files:
             shutil.move(item, out_folder)
-        for item in job_files:
-            shutil.move(item, out_folder)
 
-    extra_batch_files = glob.glob(run_file + '_*')
-    for item in extra_batch_files:
-        shutil.move(item, out_folder)
+    #extra_batch_files = glob.glob(run_file + '_*')
+    #for item in extra_batch_files:
+    #    if os.path.exists(out_folder + '/' + os.path.basename(item)):
+    #        os.remove(out_folder + '/' + os.path.basename(item))
+    #    shutil.move(item, out_folder)
 
     return None
 
@@ -780,10 +958,9 @@ def get_number_of_bursts(inps_dict):
     sys.path.append(os.path.join(os.getenv('ISCE_STACK'), 'topsStack'))
 
     from stackSentinel import cmdLineParse as stack_cmd, get_dates
-
     try:
-        inpd = create_default_template(inps_dict)
-        topsStack_template = pathObj.correct_for_isce_naming_convention(inpd)
+        #inpd = create_default_template(inps_dict)
+        topsStack_template = pathObj.correct_for_isce_naming_convention(inps_dict)
         command_options = []
         for item in topsStack_template:
             if item in ['useGPU', 'rmFilter']:
@@ -793,8 +970,8 @@ def get_number_of_bursts(inps_dict):
                 command_options = command_options + ['--' + item] + [topsStack_template[item]]
 
         inps = stack_cmd(command_options)
-        dateList, master_date, slaveList, safe_dict = get_dates(inps)
-        dirname = safe_dict[master_date].safe_file
+        dateList, reference_date, secondaryList, safe_dict = get_dates(inps)
+        dirname = safe_dict[reference_date].safe_file
 
         if inps.swath_num is None:
             swaths = [1, 2, 3]
@@ -808,7 +985,7 @@ def get_number_of_bursts(inps_dict):
             obj.configure()
             obj.safe = dirname.split()
             obj.swathNumber = swath
-            obj.output = os.path.join(inps.work_dir, 'master', 'IW{0}'.format(swath))
+            obj.output = os.path.join(inps.work_dir, 'reference', 'IW{0}'.format(swath))
             obj.orbitFile = None
             obj.auxFile = None
             obj.orbitDir = inps.orbit_dirname
@@ -832,7 +1009,7 @@ def get_number_of_bursts(inps_dict):
 ############################################################################
 
 
-def scale_walltime(number_of_bursts, c_walltime, s_walltime, scheduler='SLURM'):
+def scale_walltime(number_of_bursts, walltime_factor, c_walltime, s_walltime, scheduler='SLURM'):
     """
     scales default walltime by number of bursts
     scaled_walltime = c_walltime + number_of_bursts * s_walltime
@@ -864,8 +1041,6 @@ def scale_walltime(number_of_bursts, c_walltime, s_walltime, scheduler='SLURM'):
         c_time_seconds = 0
 
     time_seconds = float(c_time_seconds) + float(number_of_bursts) * float(s_time_seconds)
-
-    walltime_factor = float(os.getenv('WALLTIME_FACTOR'))
 
     time_seconds *= walltime_factor
 
@@ -938,6 +1113,7 @@ def multiply_walltime(wall_time, factor):
 
 ##########################################################################
 
+
 def replace_walltime_in_job_file(file, new_wall_time):
     """ replaces the walltime from a SLURM job file """
     new_lines=[]
@@ -958,41 +1134,42 @@ def replace_walltime_in_job_file(file, new_wall_time):
 
 ############################################################################
 
+
 def sum_time(time_str_list):
     """ sum time in D-HH:MM or D-HH:MM:SS format """
+    if time_str_list:
+        seconds_sum = 0
+        for item in time_str_list:
+            item_parts = item.split(':')
 
-    seconds_sum = 0
+            try:
+                days, hours = item_parts[0].split('-')
+                hours = int(days) * 24 + int(hours)
+            except:
+                hours = int(item_parts[0])
 
-    for item in time_str_list:
-        item_parts = item.split(':')
+            minutes = int(item_parts[1])
 
-        try:
-            days, hours = item_parts[0].split('-')
-            hours = int(days) * 24 + int(hours)
-        except:
-            hours = int(item_parts[0])
+            try:
+                seconds = int(item_parts[2])
+            except:
+                seconds = 0
 
-        minutes = int(item_parts[1])
+            seconds_total = seconds + minutes * 60 + hours * 3600
+            seconds_sum = seconds_sum + seconds_total
 
-        try:
-            seconds = int(item_parts[2])
-        except:
-            seconds = 0
+        hours = math.floor(seconds_sum / 3600)
+        minutes = math.floor((seconds_sum - hours * 3600) / 60)
+        seconds = math.floor((seconds_sum - hours * 3600 - minutes * 60))
 
-        seconds_total = seconds + minutes * 60 + hours * 3600
-        seconds_sum = seconds_sum + seconds_total
-
-    hours = math.floor(seconds_sum / 3600)
-    minutes = math.floor((seconds_sum - hours * 3600) / 60)
-    seconds = math.floor((seconds_sum - hours * 3600 - minutes * 60))
-
-    if len(item_parts) == 2:
-        new_time_str = '{:02d}:{:02d}'.format(hours, minutes)
+        if len(item_parts) == 2:
+            new_time_str = '{:02d}:{:02d}'.format(hours, minutes)
+        else:
+            new_time_str = '{:02d}:{:02d}:{:02d}'.format(hours, minutes, seconds)
     else:
-        new_time_str = '{:02d}:{:02d}:{:02d}'.format(hours, minutes, seconds)
+        new_time_str = '00:00:00'
 
     return new_time_str
-
 
 ############################################################################
 

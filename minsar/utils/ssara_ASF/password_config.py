@@ -3,7 +3,10 @@ unavuser="amelung"
 unavpass="MonMar16"
 
 asfuser="famelung"
-asfpass="Falk@1234:"
+asfpass="FalkAmelung1"
+
+gepuser="falkamelung"
+geppass="Falk@1234"
 
 eossouser="famelung"
 eossopass="Falk@1234:"
@@ -13,4 +16,6 @@ insaruser="insaradmin"
 insarpass="Insar123"
 
 earthdefuser="geodesy_miami"
+earthdefpass="insar"
+
 earthdefpass="insar"

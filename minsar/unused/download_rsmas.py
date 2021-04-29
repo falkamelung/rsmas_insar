@@ -15,8 +15,8 @@ from minsar.job_submission import JOB_SUBMIT
 from minsar.utils import check_download
 from contextlib import redirect_stdout
 import io
-from minsar.utils.download_ssara_rsmas import add_polygon_to_ssaraopt
-from minsar.utils.download_ssara_rsmas import add_point_to_ssaraopt
+from minsar.utils.download_ssara import add_polygon_to_ssaraopt
+from minsar.utils.download_ssara import add_point_to_ssaraopt
 
 class Capturing(list):
     def __enter__(self):
@@ -56,11 +56,10 @@ def main(iargs=None):
             input_arguments.remove('--submit')
         command = [os.path.abspath(__file__)] + input_arguments
         job_obj.submit_script(job_name, job_file_name, command)
-        sys.exit(0)
 
     if inps.prefix == 'tops':
-        if not inps.template[inps.prefix + 'Stack.slcDir'] is None:
-            download_dir = inps.template[inps.prefix + 'Stack.slcDir']
+        if not inps.template[inps.prefix + 'Stack.slcDir'] in [None, 'None']:
+            download_dir = os.path.abspath(inps.template[inps.prefix + 'Stack.slcDir'])
         else:
             download_dir = os.path.join(inps.work_dir, 'SLC')
     else:
@@ -72,11 +71,16 @@ def main(iargs=None):
     os.makedirs(inps.work_dir, exist_ok=True)
     os.makedirs(download_dir, exist_ok=True)
 
+    if 'CSK' in inps.project_name:
+        command = 'download_gep_csk.py {}'.format(inps.custom_template_file)
+        os.system(command)
+        return
+
     if 'SenDT' not in inps.project_name and 'SenAT' not in inps.project_name or os.getenv('SSARA_ASF') == 'False':
         
         try:
-           inps.template['ssaraopt.intersectsWithPoint']
-           inps.ssaraopt = ' '.join(add_point_to_ssaraopt(inps.template, inps.ssaraopt.split(' '))) 
+           # inps.template['ssaraopt.intersectsWithPoint']
+           inps.ssaraopt = ' '.join(add_point_to_ssaraopt(inps.template, inps.ssaraopt.split(' ')))
         except:
            inps.ssaraopt = ' '.join(add_polygon_to_ssaraopt(inps.template, inps.ssaraopt.split(' '), delta_lat=inps.delta_lat)) 
         command = 'ssara_federated_query.py ' + inps.ssaraopt + ' --print' + ' --download'

@@ -67,9 +67,9 @@ def main(iargs=None):
     run_file_list = run_file_list[inps.start_run:inps.end_run]
 
     for item in run_file_list:
-
         putils.remove_last_job_running_products(run_file=item)
-
+        
+        job_obj.write_batch_jobs(batch_file=item)
         job_status = job_obj.submit_batch_jobs(batch_file=item)
 
         if job_status:
@@ -87,7 +87,7 @@ def main(iargs=None):
     print(date_str + ' * all jobs from {} to {} have been completed'.format(os.path.basename(run_file_list[0]),
                                                                             os.path.basename(run_file_list[-1])))
 
-    return None
+    return
 
 
 ###########################################################################################

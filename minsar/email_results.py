@@ -44,10 +44,14 @@ def main(iargs=None):
         return
 
     if inps.email_mintpy_flag:
-        email_mintpy_results(email_address)
+        email_mintpy_results(email_address, 'mintpy')
         return
 
-    return None
+    if inps.email_minopy_flag:
+        email_mintpy_results(email_address, 'minopy')
+        return
+
+    return
 
 ###################################################
 
@@ -57,7 +61,7 @@ def email_insarmaps_results(email_address):
 
     cwd = os.getcwd()
 
-    hdfeos_file = glob.glob('./mintpy/S1*.he5')
+    hdfeos_file = glob.glob('./mintpy/*.he5')
     hdfeos_file = hdfeos_file[0]
     hdfeos_name = os.path.splitext(os.path.basename(hdfeos_file))[0]
 
@@ -66,7 +70,7 @@ def email_insarmaps_results(email_address):
     ref_lat = str(round(float(ref_lat),1))
     ref_lon = str(round(float(ref_lon),1))
          
-    textStr = 'http://insarmaps.miami.edu/start/' + ref_lat + '/' + ref_lon + '/7"\?"startDataset=' + hdfeos_name
+    textStr = 'http://insarmaps.miami.edu/start/' + ref_lat + '/' + ref_lon + '/7?startDataset=' + hdfeos_name
 
     mailCmd = 'echo \"' + textStr + '\" | mail -s Miami_InSAR_results:_' + os.path.basename(cwd) + ' ' + email_address
 
@@ -80,19 +84,19 @@ def email_insarmaps_results(email_address):
     return
 
 
-def email_mintpy_results(email_address):
+def email_mintpy_results(email_address, dir='mintpy'):
     """ email mintpy results """
 
-    textStr = 'email mintpy results'
+    textStr = 'email {} results'.format(dir)
 
     cwd = os.getcwd()
 
     file_list = pathObj.get_email_file_list()
 
-    if os.path.isdir('mintpy/pic'):
-        prefix = 'mintpy/pic'
+    if os.path.isdir('{}/pic'.format(dir)):
+        prefix = '{}/pic'.format(dir)
 
-    template_file = glob.glob('mintpy/inputs/*.template')[0]
+    template_file = glob.glob('{}/inputs/*.template'.format(dir))[0]
 
     i = 0
     for fileList in file_list:
@@ -113,7 +117,7 @@ def email_mintpy_results(email_address):
     print(command)
     status = subprocess.Popen(command, shell=True).wait()
     if status is not 0:
-        print('Error in email_mintpy_results -- skipping error')
+        print('Error in email_{}_results -- skipping error'.format(dir))
 
     return
 
