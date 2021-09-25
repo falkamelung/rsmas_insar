@@ -1,20 +1,12 @@
 .bashrc file contents:
 
-```bash
-# .bashrc
-
-# Source global definitions
-if [ -f /etc/bashrc ]; then
-    . /etc/bashrc
-fi
-
+```
 # User specific aliases and functions
 shopt -s expand_aliases
 
 modules_shell="bash"
 [ -n module ] && module purge
 umask 002
-
 
 export USER_PREFERRED=famelung
 #module purge
