@@ -18,6 +18,9 @@ alias source_environment='cd $RSMASINSAR_HOME; export PATH=/bin; unset PYTHONPAT
 
 alias s.bw2='export RSMASINSAR_HOME=${WORK2%/*}/stampede2/code/rsmas_insar; source_environment'
 alias s.bw2o='export RSMASINSAR_HOME=${WORK2%/*}/stampede2/code_dec23/rsmas_insar; source_environment'
+alias s.bw2m='export MINSAR_HOME=${WORK2%/*}/stampede2/code/minsar; source $MINSAR_HOME/setup/environment.bash'
+
+alias source_environment='cd $RSMASINSAR_HOME; export PATH=/bin; unset PYTHONPATH; source setup/platforms_defaults.bash; source setup/environment.bash; export PATH=$ISCE_STACK/topsStack:$PATH; source ~/accounts/alias.bash; source ~/accounts/login_alias.bash; cd -;'
 
 ```
 Before re-installing the code, rename the directory of your working code to e.g `code_dec23`, so that you can use it with `s.bw2o` with 'o' for old code.
